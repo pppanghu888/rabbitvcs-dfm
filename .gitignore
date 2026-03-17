@@ -1,0 +1,15 @@
+build/
+*.qm
+*.autosave
+.*.swp
+*~
+.CMakeLists.txt.user
+.clang-format
+.clang-tidy
+compile_commands.json
+.idea/
+.vscode/
+release/
+obj-x86_64-linux-gnu/
+debian/.debhelper/
+debian/rabbitvcs-dfm/

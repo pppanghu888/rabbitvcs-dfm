@@ -1,0 +1,21 @@
+Source: rabbitvcs-dfm
+Section: utils
+Priority: optional
+Maintainer: UnionTech Software Technology Co., Ltd. <support@uniontech.com>
+Build-Depends: cmake (>= 3.10),
+               debhelper-compat (= 13),
+               qtbase5-dev,
+               libqt5dbus5,
+               dde-file-manager-dev,
+               rabbitvcs-cli
+Standards-Version: 4.5.0
+Homepage: https://github.com/linuxdeepin/rabbitvcs-dfm
+
+Package: rabbitvcs-dfm
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, rabbitvcs-cli, dde-file-manager
+Description: RabbitVCS integration for DDE File Manager
+ RabbitVCS is a graphical front-end to version control systems like SVN, Git,
+ and Mercurial. This package integrates RabbitVCS into the DDE File Manager
+ (dde-file-manager), providing context menu actions and emblem icons for
+ version-controlled files.

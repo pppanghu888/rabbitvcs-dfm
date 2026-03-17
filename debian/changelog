@@ -1,0 +1,9 @@
+rabbitvcs-dfm (1.0.0) unstable; urgency=medium
+
+  * Initial release
+  * Add RabbitVCS support for dde-file-manager
+  * Implement menu plugin with SVN/Git support
+  * Implement emblem icon plugin
+  * Add translations for Chinese
+
+ -- UnionTech Software Technology Co., Ltd. <support@uniontech.com>  Wed, 05 Feb 2025 00:00:00 +0800
