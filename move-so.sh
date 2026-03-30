@@ -3,8 +3,9 @@
 # 移动 build 目录中的 so 文件到目标目录
 # 目标目录: /home/ljc/project/dde-file-manager/gerrit/dde-file-manager/build/src/plugins/extensions
 
-SOURCE_SO="./build/librabbitvcs-dfm.so"
-TARGET_DIR="~/project/dde-file-manager/gerrit/dde-file-manager/build/src/plugins/extensions"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SOURCE_SO="$SCRIPT_DIR/build/librabbitvcs-dfm.so"
+TARGET_DIR="$HOME/project/dde-file-manager/gerrit/dde-file-manager/build/src/plugins/extensions"
 
 # 检查源文件是否存在
 if [ ! -f "$SOURCE_SO" ]; then

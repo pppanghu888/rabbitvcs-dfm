@@ -44,6 +44,7 @@ private:
     struct CacheResult {
         QString dirPath;
         QHash<QString, QString> files;
+        int taskId = 0;
     };
     CacheResult cacheDirectoryStatusSync(const QString &dirPath);
 

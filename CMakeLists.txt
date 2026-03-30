@@ -13,8 +13,19 @@ else()
     message(STATUS "Menu grouping: DISABLED")
 endif()
 
-# Find required packages
-find_package(Qt5 REQUIRED COMPONENTS Core DBus Gui Widgets Concurrent)
+# Find Qt - prefer Qt6, fallback to Qt5
+find_package(Qt6 QUIET COMPONENTS Core DBus Gui Widgets Concurrent)
+if(Qt6_FOUND)
+    set(QT_VERSION_MAJOR 6)
+    message(STATUS "Using Qt6")
+    set(QT_TARGET_PREFIX Qt6)
+else()
+    find_package(Qt5 REQUIRED COMPONENTS Core DBus Gui Widgets Concurrent)
+    set(QT_VERSION_MAJOR 5)
+    message(STATUS "Using Qt5")
+    set(QT_TARGET_PREFIX Qt5)
+endif()
+
 find_package(PkgConfig REQUIRED)
 
 # Find dfm-extension
@@ -43,11 +54,11 @@ add_library(rabbitvcs-dfm SHARED ${SRCS} ${HEADERS})
 # Link libraries
 target_link_libraries(rabbitvcs-dfm
     PRIVATE
-    Qt5::Core
-    Qt5::DBus
-    Qt5::Gui
-    Qt5::Widgets
-    Qt5::Concurrent
+    ${QT_TARGET_PREFIX}::Core
+    ${QT_TARGET_PREFIX}::DBus
+    ${QT_TARGET_PREFIX}::Gui
+    ${QT_TARGET_PREFIX}::Widgets
+    ${QT_TARGET_PREFIX}::Concurrent
     ${dfm-extension_LIBRARIES}
 )
 
@@ -60,6 +71,7 @@ target_include_directories(rabbitvcs-dfm PRIVATE
 # Compile definitions
 target_compile_definitions(rabbitvcs-dfm PRIVATE
     QT_DEPRECATED_WARNINGS
+    QT_VERSION_MAJOR=${QT_VERSION_MAJOR}
     $<$<BOOL:${USE_ACT_GROUP_ID}>:RABBITVCS_USE_ACT_GROUP_ID=1>
 )
 
@@ -86,3 +98,4 @@ message(STATUS "Installation prefix: ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "Plugin directory: ${DFM_EXT_PLUGIN_DIR}")
 message(STATUS "dfm-extension include dirs: ${dfm-extension_INCLUDE_DIRS}")
 message(STATUS "dfm-extension libraries: ${dfm-extension_LIBRARIES}")
+message(STATUS "Qt version: ${QT_VERSION_MAJOR}")

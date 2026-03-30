@@ -7,10 +7,44 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QDebug>
-#include <QRegExp>
+#include <QRegularExpression>
 #include <QCoreApplication>
 #include <QtConcurrent>
 #include <QMutexLocker>
+
+// Qt5/Qt6 compatibility
+#if QT_VERSION_MAJOR >= 6
+    #define QT_SKIP_EMPTY_PARTS Qt::SkipEmptyParts
+#else
+    #define QT_SKIP_EMPTY_PARTS QString::SkipEmptyParts
+#endif
+
+// Helper function for wildcard matching (Qt5/Qt6 compatible)
+static QString wildcardToRegex(const QString &pattern)
+{
+#if QT_VERSION >= QT_VERSION_CHECK(5, 12, 0)
+    return QRegularExpression::wildcardToRegularExpression(pattern);
+#else
+    // Simple conversion for older Qt versions
+    QString regex;
+    for (int i = 0; i < pattern.length(); ++i) {
+        QChar c = pattern[i];
+        if (c == '*') {
+            regex += ".*";
+        } else if (c == '?') {
+            regex += '.';
+        } else if (c == '.' || c == '(' || c == ')' || c == '[' || c == ']' ||
+                   c == '$' || c == '^' || c == '|' || c == '+' || c == '\\' ||
+                   c == '{' || c == '}') {
+            regex += '\\';
+            regex += c;
+        } else {
+            regex += c;
+        }
+    }
+    return '^' + regex + '$';
+#endif
+}
 
 #define SERVICE "org.google.code.rabbitvcs.RabbitVCS.Checker"
 #define OBJECT_PATH "/org/google/code/rabbitvcs/StatusChecker"
@@ -92,16 +126,18 @@ QString StatusChecker::checkStatus(const QString &path, bool recurse, bool inval
     QString status = checkStatusDirectly(path);
 
     // Trigger async directory cache for future files in this directory
-    // Cancel previous task if still running
+    // Cancel previous task if still running (don't wait - avoid blocking)
     if (cacheWatcher->isRunning()) {
         cacheWatcher->cancel();
-        cacheWatcher->waitForFinished();
     }
 
-    // Start new async cache task
-    currentTaskId.fetchAndAddRelaxed(1);
-    QFuture<CacheResult> future = QtConcurrent::run(
-        this, &StatusChecker::cacheDirectoryStatusSync, dirPath);
+    // Start new async cache task with task ID for stale result detection
+    int taskId = currentTaskId.fetchAndAddRelaxed(1);
+    QFuture<CacheResult> future = QtConcurrent::run([this, dirPath, taskId]() {
+        CacheResult result = cacheDirectoryStatusSync(dirPath);
+        result.taskId = taskId;
+        return result;
+    });
     cacheWatcher->setFuture(future);
 
     //qDebug() << "[Direct+Async] File:" << path << "Status:" << status;
@@ -216,11 +252,7 @@ QString StatusChecker::generateMenuConditions(const QStringList &paths)
     if (isAdded) conditions << "\"is_added\":true";
     if (isDeleted) conditions << "\"is_deleted\":true";
 
-    // If not in any VCS, allow all menus
-    if (!isInAOrAWorkingCopy) {
-        conditions << "\"is_git\":true";
-        conditions << "\"is_svn\":true";
-    }
+    // 非VCS目录：不设置 is_git/is_svn，由菜单逻辑决定显示哪些子菜单
 
     QString result = "{" + conditions.join(",") + "}";
 
@@ -249,13 +281,6 @@ QString StatusChecker::checkStatusDirectly(const QString &path)
     }
 
     if (gitDir.exists(".git")) {
-        // Don't show emblem for the repository root directory itself
-        QString repoRootPath = gitDir.absolutePath();
-        QString normalizedPath = QDir::cleanPath(path);
-        if (normalizedPath == repoRootPath) {
-            return QString();  // No emblem for Git repo root
-        }
-
         // Use git status --porcelain --ignored to detect ignored files
         QProcess process;
         process.setWorkingDirectory(gitDir.absolutePath());
@@ -295,13 +320,6 @@ QString StatusChecker::checkStatusDirectly(const QString &path)
     }
 
     if (svnDir.exists(".svn")) {
-        // Don't show emblem for the repository root directory itself
-        QString repoRootPath = svnDir.absolutePath();
-        QString normalizedPath = QDir::cleanPath(path);
-        if (normalizedPath == repoRootPath) {
-            return QString();  // No emblem for SVN repo root
-        }
-
         QProcess process;
         process.setWorkingDirectory(svnDir.absolutePath());
         process.start("svn", QStringList() << "status" << path);
@@ -350,7 +368,7 @@ StatusChecker::CacheResult StatusChecker::cacheDirectoryStatusSync(const QString
         process.waitForFinished(5000);
 
         QString output = process.readAllStandardOutput();
-        QStringList lines = output.split('\n', QString::SkipEmptyParts);
+        QStringList lines = output.split('\n', QT_SKIP_EMPTY_PARTS);
 
         QString basePath = gitDir.absolutePath();
         for (const QString &line : lines) {
@@ -383,7 +401,7 @@ StatusChecker::CacheResult StatusChecker::cacheDirectoryStatusSync(const QString
         process.waitForFinished(5000);
 
         QString output = process.readAllStandardOutput();
-        QStringList lines = output.split('\n', QString::SkipEmptyParts);
+        QStringList lines = output.split('\n', QT_SKIP_EMPTY_PARTS);
 
         for (const QString &line : lines) {
             QString status = parseSvnStatusLine(line, QString());
@@ -401,16 +419,19 @@ StatusChecker::CacheResult StatusChecker::cacheDirectoryStatusSync(const QString
 
 void StatusChecker::onDirectoryCacheReady()
 {
-    if (!cacheWatcher->isCanceled()) {
-        CacheResult result = cacheWatcher->result();
+    CacheResult result = cacheWatcher->result();
 
-        // Store results in cache with mutex protection
-        QMutexLocker locker(&cacheMutex);
-        dirCache[result.dirPath] = result.files;
-        dirCacheTime[result.dirPath] = QDateTime::currentDateTime();
-
-        qDebug() << "[AsyncCache] Completed for" << result.dirPath << "with" << result.files.size() << "files";
+    // Discard stale results from canceled/old tasks
+    // Use implicit conversion for Qt5/Qt6 compatibility
+    if (result.taskId < static_cast<int>(currentTaskId)) {
+        return;
     }
+
+    QMutexLocker locker(&cacheMutex);
+    dirCache[result.dirPath] = result.files;
+    dirCacheTime[result.dirPath] = QDateTime::currentDateTime();
+
+    qDebug() << "[AsyncCache] Completed for" << result.dirPath << "with" << result.files.size() << "files";
 }
 
 QString StatusChecker::parseGitStatusLine(const QString &line, const QString &filePath)
@@ -488,14 +509,15 @@ bool StatusChecker::isFileIgnored(const QString &path, const QString &vcsType, c
         QString fileName = fileInfo.fileName();
 
         // Check if filename matches any ignore pattern
-        QStringList ignorePatterns = output.split('\n', QString::SkipEmptyParts);
+        QStringList ignorePatterns = output.split('\n', QT_SKIP_EMPTY_PARTS);
         for (const QString &pattern : ignorePatterns) {
             QString trimmedPattern = pattern.trimmed();
             if (trimmedPattern.isEmpty()) continue;
 
-            // Simple wildcard matching
-            QRegExp regex(trimmedPattern, Qt::CaseInsensitive, QRegExp::Wildcard);
-            if (regex.exactMatch(fileName)) {
+            // Simple wildcard matching using QRegularExpression
+            QString regexPattern = wildcardToRegex(trimmedPattern);
+            QRegularExpression regex(regexPattern, QRegularExpression::CaseInsensitiveOption);
+            if (regex.match(fileName).hasMatch()) {
                 return true;
             }
         }
